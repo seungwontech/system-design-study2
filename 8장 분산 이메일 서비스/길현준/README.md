@@ -93,7 +93,7 @@
 |----------|------|----------|------|
 | **SMTP** | 이메일 전송 (서버→서버) | 메일 서버 간 이메일 전달의 표준 프로토콜 | 수신 용도로는 사용 불가 |
 | **POP** | 이메일 수신 (다운로드) | 원격 서버에서 이메일을 다운로드 후 서버에서 삭제 | 한 대 단말에서만 읽기 가능, 부분 읽기 불가 |
-| **IMAP** | 이메일 수신 (동기화) | 클릭하기 전까지 헤더만 다운로드, 서버에서 삭제 안 됨 | 개인 이메일에서 가장 널리 사용 |
+| **IMAP** | 이메일 수신 (동기화) | 클릭하기 전까지 헤더만 다운로드, 서버에서 삭제 안 됨. 개인 이메일에서 가장 널리 사용 | 서버 저장 용량 필요, 오프라인 접근 시 별도 동기화 필요 |
 | **HTTPS** | 웹 기반 메일함 접속 | 기술적으로는 메일 전송 프로토콜이 아님, 웹메일에 이용 | ActiveSync 등 자체 프로토콜 필요 |
 
 POP은 이메일을 통째로 내려받아야 하므로 용량이 큰 첨부 파일이 있으면 시간이 오래 걸린다. 반면 IMAP은 헤더만 먼저 다운로드하므로 인터넷 속도가 느려도 잘 동작하며, 여러 단말에서 동일한 메일을 읽을 수 있다.
@@ -263,8 +263,8 @@ flowchart TB
     Worker -->|6| Store[(저장소 계층<br/>메타데이터 DB + 캐시 + S3)]
     Worker -->|7 온라인?| RS[실시간 서버]
     RS -->|8 WebSocket| WM[웹메일]
-    Store -->|10| WebServer[웹 서버]
-    WebServer -->|9 HTTPS| WM
+    WM -->|9 HTTPS| WebServer[웹 서버]
+    WebServer -->|10| Store
 ```
 
 | 단계 | 설명 |
@@ -342,10 +342,10 @@ flowchart TB
 ```sql
 -- folders_by_user 테이블
 CREATE TABLE folders_by_user (
-    user_id   UUID,        -- K (파티션 키)
-    folder_id UUID,
+    user_id     UUID,        -- K (파티션 키)
+    folder_id   UUID,
     folder_name TEXT,
-    PRIMARY KEY (user_id)
+    PRIMARY KEY (user_id, folder_id)
 );
 
 SELECT * FROM folders_by_user WHERE user_id = <user_id>;
@@ -391,10 +391,10 @@ SELECT * FROM emails_by_user WHERE email_id = 123;
 
 -- attachments 테이블
 CREATE TABLE attachments (
-    email_id  TIMEUUID,   -- K (파티션 키)
-    filename  TEXT,        -- C (클러스터 키)
+    filename  TEXT,        -- K (파티션 키)
+    email_id  TIMEUUID,   -- C (클러스터 키)
     url       TEXT,
-    PRIMARY KEY (email_id, filename)
+    PRIMARY KEY (filename, email_id)
 );
 ```
 
@@ -644,7 +644,7 @@ flowchart LR
 **Answer**:
 > 이메일 시스템은 **데이터 일관성을 우선**한다. 이메일은 법적·업무적으로 중요한 문서이므로 데이터의 정확성이 가용성보다 더 중요하다.
 >
-> 따라서 모든 메일함은 반드시 **하나의 주(primary) 사본**을 통해 서비스되어야 한다. 장애 발생 시 클라이언트는 주 사본이 복원될 때까지 동기화/갱신 작업을 완료할 수 없다. 이는 CAP 정리에서 **CP(Consistency + Partition tolerance)**를 선택하는 것에 해당한다.
+> 따라서 모든 메일함은 반드시 **하나의 주(primary) 사본**을 통해 서비스되어야 한다. 장애 발생 시 클라이언트는 주 사본이 복원될 때까지 동기화/갱신 작업을 완료할 수 없다. 이는 **데이터 일관성을 위해 가용성을 희생하는 결정**이다.
 
 ---
 
